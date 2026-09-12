@@ -258,7 +258,6 @@ Frontend variables:
 - `VITE_API_URL` (default `/api`)
 - `VITE_APP_VERSION` (from build-time metadata)
 - `VITE_APP_BUILD_LABEL` (build metadata label)
-- `BACKEND_URL` (frontend container entrypoint only; default `backend:8000`, injected into nginx template)
 
 E2E variables:
 
@@ -287,10 +286,6 @@ E2E variables:
 
 - `FRONTEND_URL` is the origin allow-list for frontend callbacks and API origin checks.
 - `TRUST_PROXY` should be `1` for one trusted proxy hop, or `false` when traffic is direct.
-- `BACKEND_URL` is injected into `frontend/nginx.conf.template` to route:
-  - `/api/` to backend API
-  - `/socket.io/` to backend websocket
-- For Kubernetes, set `BACKEND_URL` to service DNS (example `excalidash-backend.default.svc.cluster.local:8000`).
 - Ensure TLS termination and `X-Forwarded-Proto` are consistent with proxy headers; auth + sockets depend on this.
 
 ## Architecture notes for contributor agents
@@ -312,7 +307,7 @@ Frontend architecture notes:
 - `frontend/src/context/` contains auth/theme state.
 - `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
-- Production serving and backend proxy are handled by `frontend/Dockerfile`, `frontend/nginx.conf.template`, `frontend/docker-entrypoint.sh`.
+- Production frontend serving uses the stock Nginx configuration from the base image. Configure any SPA fallback, API proxying, or WebSocket proxying in your own reverse proxy.
 
 ## Makefile command map
 

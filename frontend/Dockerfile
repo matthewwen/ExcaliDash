@@ -25,18 +25,7 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
-# Copy nginx config template (will be processed at runtime)
-COPY frontend/nginx.conf.template /etc/nginx/nginx.conf.template
-
-# Copy entrypoint script
-COPY frontend/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
 # Copy built application from builder
 COPY --from=builder /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80
-
-# Use custom entrypoint to process nginx config template
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["nginx", "-g", "daemon off;"]

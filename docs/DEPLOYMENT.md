@@ -3,13 +3,12 @@
 <details>
 <summary>Reverse Proxy / Traefik</summary>
 
-When running ExcaliDash behind Traefik, Nginx, or another reverse proxy, configure both containers so that API + WebSocket calls resolve correctly:
+The frontend image uses stock Nginx and does not proxy API or WebSocket traffic. Route the frontend, `/api/`, and `/socket.io/` in your own reverse proxy. Configure the backend with the public frontend origin and proxy trust settings:
 
 | Variable                 | Purpose                                                                                                                                                                   |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `FRONTEND_URL`           | Backend allowed origin(s). Must match the public URL users access (for example `https://excalidash.example.com`). Supports comma-separated values for multiple addresses. |
 | `TRUST_PROXY`            | Set to `1` when traffic passes through one trusted reverse-proxy hop (for example frontend nginx -> backend) and headers are sanitized.                                   |
-| `BACKEND_URL`            | Frontend container-to-backend target used by Nginx. Override when backend host differs from default service DNS/host.                                                     |
 | `ENFORCE_HTTPS_REDIRECT` | When `FRONTEND_URL` uses `https://`, the backend automatically redirects plain-HTTP requests to HTTPS. Set to `false` if your outer gateway already enforces HTTPS and you want to disable the built-in redirect (avoids redirect loops when `X-Forwarded-Proto` is not forwarded). Default: `true`. |
 
 ```yaml
@@ -25,12 +24,6 @@ backend:
     # If your outer gateway enforces HTTPS and X-Forwarded-Proto is not forwarded,
     # disable the built-in redirect to prevent redirect loops:
     # - ENFORCE_HTTPS_REDIRECT=false
-frontend:
-  environment:
-    # For standard Docker Compose (default)
-    # - BACKEND_URL=backend:8000
-    # For Kubernetes, use the service DNS name:
-    - BACKEND_URL=excalidash-backend.default.svc.cluster.local:8000
 ```
 
 </details>
@@ -377,5 +370,3 @@ backend:
 For Unraid or other Docker templates, map the host directory to container path `/app/prisma` and keep `DATABASE_URL=file:/app/prisma/dev.db`; named volumes are harder to inspect and easier to accidentally recreate.
 
 </details>
-
-

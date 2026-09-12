@@ -58,10 +58,6 @@ services:
     container_name: excalidash-frontend
     ports:
       - "6767:80"
-    environment:
-      # Backend URL for nginx proxy (host:port format, no protocol)
-      # Override for reverse proxy setups (e.g., excalidash-backend.svc.cluster.local:8000)
-      - BACKEND_URL=backend:8000
     depends_on:
       - backend
     networks:

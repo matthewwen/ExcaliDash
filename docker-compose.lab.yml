@@ -124,8 +124,6 @@ services:
     <<: *frontend-common
     ports:
       - "1101:80"
-    environment:
-      BACKEND_URL: backend-basic:8000
     depends_on:
       - backend-basic
     networks:
@@ -158,8 +156,6 @@ services:
     <<: *frontend-common
     ports:
       - "1102:80"
-    environment:
-      BACKEND_URL: backend-basic-seaweed:8000
     depends_on:
       - backend-basic-seaweed
     networks:
@@ -193,8 +189,6 @@ services:
     <<: *frontend-common
     ports:
       - "1103:80"
-    environment:
-      BACKEND_URL: backend-oidc:8000
     depends_on:
       - backend-oidc
     networks:
@@ -228,8 +222,6 @@ services:
     <<: *frontend-common
     ports:
       - "1104:80"
-    environment:
-      BACKEND_URL: backend-hybrid:8000
     depends_on:
       - backend-hybrid
     networks:
@@ -252,8 +244,6 @@ services:
     <<: *frontend-common
     ports:
       - "1105:80"
-    environment:
-      BACKEND_URL: backend-trusted-proxy:8000
     depends_on:
       - backend-trusted-proxy
     networks:

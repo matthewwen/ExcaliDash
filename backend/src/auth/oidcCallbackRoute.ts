@@ -163,6 +163,18 @@ export const registerOidcCallbackRoute = (deps: RegisterOidcCallbackRouteDeps) =
         );
       }
       const normalizedEmail = normalizeEmail(rawEmail);
+      const allowedEmails = config.oidc.allowedEmails ?? [];
+      if (
+        allowedEmails.length > 0 &&
+        !allowedEmails.includes(normalizedEmail)
+      ) {
+        return redirectToLoginWithError(
+          req,
+          res,
+          "email_not_allowed",
+          flow.returnTo,
+        );
+      }
       const systemConfig = await ensureSystemConfig();
       const jitProvisioningEnabled =
         typeof systemConfig.oidcJitProvisioningEnabled === "boolean"

@@ -53,6 +53,7 @@ export type RegisterOidcRoutesDeps = {
       scopes: string;
       emailClaim: string;
       emailVerifiedClaim: string;
+      allowedEmails?: string[];
       groupsClaim: string;
       adminGroups: string[];
       requireEmailVerified: boolean;

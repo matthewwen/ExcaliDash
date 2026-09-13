@@ -112,6 +112,7 @@ interface OidcConfig {
   scopes: string;
   emailClaim: string;
   emailVerifiedClaim: string;
+  allowedEmails: string[];
   groupsClaim: string;
   adminGroups: string[];
   requireEmailVerified: boolean;
@@ -250,6 +251,9 @@ const resolveOidcConfig = (authMode: AuthMode): OidcConfig => {
   const clientSecret = readOptionalString("OIDC_CLIENT_SECRET");
   const redirectUri = readOptionalString("OIDC_REDIRECT_URI");
   const groupsClaim = readString("OIDC_GROUPS_CLAIM", "groups").trim();
+  const allowedEmails = readCsv("OIDC_ALLOWED_EMAILS").map((email) =>
+    email.toLowerCase(),
+  );
   const adminGroups = readCsv("OIDC_ADMIN_GROUPS");
   const requiredWhenEnabled = {
     OIDC_ISSUER_URL: issuerUrl,
@@ -276,6 +280,7 @@ const resolveOidcConfig = (authMode: AuthMode): OidcConfig => {
   if (!enabled) {
     const hasOidcVars =
       Object.values(requiredWhenEnabled).some((value) => Boolean(value)) ||
+      allowedEmails.length > 0 ||
       adminGroups.length > 0;
     if (hasOidcVars) {
       console.warn(
@@ -310,6 +315,7 @@ const resolveOidcConfig = (authMode: AuthMode): OidcConfig => {
     scopes: readString("OIDC_SCOPES", "openid profile email"),
     emailClaim: readString("OIDC_EMAIL_CLAIM", "email"),
     emailVerifiedClaim: readString("OIDC_EMAIL_VERIFIED_CLAIM", "email_verified"),
+    allowedEmails,
     groupsClaim,
     adminGroups,
     requireEmailVerified: readBoolean("OIDC_REQUIRE_EMAIL_VERIFIED", true),

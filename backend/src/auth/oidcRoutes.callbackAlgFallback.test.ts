@@ -150,6 +150,7 @@ const createApp = async (
   idTokenAlgOverride: string | null,
   issuerUrlOverride: string | null = null,
   prismaOverride?: Record<string, unknown>,
+  allowedEmails: string[] = [],
 ) => {
   const { registerOidcRoutes } = await import("./oidcRoutes");
   const app = express();
@@ -188,9 +189,10 @@ const createApp = async (
         idTokenSignedResponseAlg: idTokenAlgOverride,
         tokenEndpointAuthMethod: null,
         scopes: "openid email profile",
-        emailClaim: "email",
-        emailVerifiedClaim: "email_verified",
-        groupsClaim: "groups",
+          emailClaim: "email",
+          emailVerifiedClaim: "email_verified",
+          allowedEmails,
+          groupsClaim: "groups",
         adminGroups: [],
         requireEmailVerified: true,
         jitProvisioning: true,
@@ -301,5 +303,61 @@ describe("OIDC callback alg mismatch fallback", () => {
     expect(response.headers.location).toBe("/");
     expect(prisma.__tx.authIdentity.update).toHaveBeenCalledTimes(1);
     expect(prisma.__tx.authIdentity.create).toHaveBeenCalledTimes(0);
+  });
+
+  it("allows an email present in the allow-list", async () => {
+    callbackMock.mockResolvedValue({
+      claims: () => ({
+        sub: "subject-1",
+        email: "alice@example.com",
+        email_verified: true,
+      }),
+    });
+
+    const app = await createApp(null, null, undefined, ["alice@example.com"]);
+    const response = await request(app)
+      .get("/oidc/callback?code=test-code&state=state-fixed")
+      .set("Cookie", [`excalidash-oidc-flow=${makeFlowCookie("test-secret")}`]);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe("/");
+  });
+
+  it("denies an email absent from the allow-list before identity lookup", async () => {
+    const prisma = createPrismaMock();
+    callbackMock.mockResolvedValue({
+      claims: () => ({
+        sub: "subject-1",
+        email: "blocked@example.com",
+        email_verified: true,
+      }),
+    });
+
+    const app = await createApp(null, null, prisma as any, ["alice@example.com"]);
+    const response = await request(app)
+      .get("/oidc/callback?code=test-code&state=state-fixed")
+      .set("Cookie", [`excalidash-oidc-flow=${makeFlowCookie("test-secret")}`]);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain("oidcError=email_not_allowed");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("matches allowed emails without regard to case", async () => {
+    callbackMock.mockResolvedValue({
+      claims: () => ({
+        sub: "subject-1",
+        email: "Alice@Example.COM",
+        email_verified: true,
+      }),
+    });
+
+    const app = await createApp(null, null, undefined, ["alice@example.com"]);
+    const response = await request(app)
+      .get("/oidc/callback?code=test-code&state=state-fixed")
+      .set("Cookie", [`excalidash-oidc-flow=${makeFlowCookie("test-secret")}`]);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe("/");
   });
 });

@@ -38,6 +38,18 @@ describe("OIDC signing algorithm config", () => {
     expect(config.oidc.idTokenSignedResponseAlg).toBe("HS256");
   });
 
+  it("trims and lowercases the OIDC email allow-list", async () => {
+    applyBaseOidcEnv();
+    process.env.OIDC_ALLOWED_EMAILS = " Admin@Example.COM, second@example.com ";
+
+    const { config } = await loadConfig();
+
+    expect(config.oidc.allowedEmails).toEqual([
+      "admin@example.com",
+      "second@example.com",
+    ]);
+  });
+
   it("rejects none", async () => {
     applyBaseOidcEnv();
     process.env.OIDC_ID_TOKEN_SIGNED_RESPONSE_ALG = "none";

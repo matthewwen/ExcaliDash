@@ -11,19 +11,28 @@ services:
       - PORT=8000
       - NODE_ENV=production
       - AUTH_MODE=${AUTH_MODE:-local}
-      # Keep disabled by default; only enable when a trusted proxy sanitizes forwarded headers.
-      - TRUST_PROXY=false
+      # Set to 1 when the host Nginx proxy is the trusted hop.
+      - TRUST_PROXY=${TRUST_PROXY:-false}
+      - FRONTEND_URL=${FRONTEND_URL:-}
       # Optional for single-instance deployments:
       # if unset, backend auto-generates and persists one in the volume.
       # Recommended to set explicitly for portability and multi-instance setups.
       - JWT_SECRET=${JWT_SECRET}
       - CSRF_SECRET=${CSRF_SECRET}
-      # Optional OIDC settings (required for AUTH_MODE=hybrid or oidc_enforced)
-      # - OIDC_PROVIDER_NAME=Authentik
-      # - OIDC_ISSUER_URL=https://auth.example.com/application/o/excalidash/
-      # - OIDC_CLIENT_ID=your-client-id
-      # - OIDC_CLIENT_SECRET=your-client-secret
-      # - OIDC_REDIRECT_URI=https://excalidash.example.com/api/auth/oidc/callback
+      # OIDC settings (required for AUTH_MODE=hybrid or oidc_enforced).
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME:-OIDC}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
+      - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-}
+      - OIDC_SCOPES=${OIDC_SCOPES:-openid profile email}
+      - OIDC_EMAIL_CLAIM=${OIDC_EMAIL_CLAIM:-email}
+      - OIDC_EMAIL_VERIFIED_CLAIM=${OIDC_EMAIL_VERIFIED_CLAIM:-email_verified}
+      - OIDC_ALLOWED_EMAILS=${OIDC_ALLOWED_EMAILS:-}
+      - OIDC_REQUIRE_EMAIL_VERIFIED=${OIDC_REQUIRE_EMAIL_VERIFIED:-true}
+      - OIDC_JIT_PROVISIONING=${OIDC_JIT_PROVISIONING:-true}
+      - OIDC_FIRST_USER_ADMIN=${OIDC_FIRST_USER_ADMIN:-true}
       # Optional scheduled SQLite backups (see docs/DEPLOYMENT.md > Backups).
       # BACKUP_SCHEDULE is a 5- or 6-field cron expression; unset disables it.
       # Uncomment these together with the backup-data volume mount below.
@@ -34,6 +43,9 @@ services:
       - backend-data:/app/prisma
       # Persist scheduled backups outside the container (pairs with BACKUP_DIR).
       # - backup-data:/app/backups
+    ports:
+      # Host Nginx proxies API and Socket.IO traffic to this loopback-only port.
+      - "127.0.0.1:8000:8000"
     networks:
       - excalidash-network
     restart: unless-stopped

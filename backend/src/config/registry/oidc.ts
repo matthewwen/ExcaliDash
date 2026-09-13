@@ -66,6 +66,12 @@ export const oidcEnv: readonly EnvVarSpec[] = [
     doc: "ID-token claim indicating whether the email is verified.",
   },
   {
+    name: "OIDC_ALLOWED_EMAILS",
+    group: "OIDC",
+    kind: "csv",
+    doc: "Optional comma-separated allow-list of verified email addresses permitted to sign in.",
+  },
+  {
     name: "OIDC_GROUPS_CLAIM",
     group: "OIDC",
     kind: "string",

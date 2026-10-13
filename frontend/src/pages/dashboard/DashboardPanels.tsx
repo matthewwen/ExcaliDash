@@ -18,7 +18,7 @@ export const DragPreview: React.FC<DragPreviewProps> = ({ drawings }) => (
         {drawings.slice(0, 3).map((drawing, index) => (
           <div
             key={drawing.id}
-            className="absolute inset-0 bg-slate-50 border-2 border-black rounded-xl shadow-sm flex items-center justify-center overflow-hidden"
+            className="absolute inset-0 bg-slate-50 dark:bg-neutral-900 border-2 border-slate-800 dark:border-neutral-700 rounded-xl shadow-sm flex items-center justify-center overflow-hidden"
             style={{
               transform: `translate(${index * 4}px, ${index * 4}px)`,
               zIndex: 3 - index,
@@ -29,11 +29,11 @@ export const DragPreview: React.FC<DragPreviewProps> = ({ drawings }) => (
             <div className="absolute inset-0 opacity-[0.3] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] [background-size:24px_24px]" />
             {drawing.preview ? (
               <div
-                className="w-full h-full p-2 flex items-center justify-center [&>svg]:w-auto [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:drop-shadow-sm relative z-10"
+                className="drawing-preview w-full h-full p-2 flex items-center justify-center [&>svg]:w-auto [&>svg]:h-auto [&>svg]:max-w-full [&>svg]:max-h-full [&>svg]:drop-shadow-sm relative z-10"
                 dangerouslySetInnerHTML={{ __html: drawing.preview }}
               />
             ) : (
-              <div className="text-slate-300 relative z-10">
+              <div className="text-slate-300 dark:text-neutral-600 relative z-10">
                 <Folder size={24} />
               </div>
             )}
@@ -90,7 +90,7 @@ export const FileDropOverlay: React.FC<FileDropOverlayProps> = ({
       Drop files to import
     </h3>
     <p className="text-slate-500 text-base sm:text-lg max-w-sm sm:max-w-md text-center px-4">
-      Drop .excalidraw or .json files here to add them to
+      Drop .excalidash files here to import them into
       <span className="font-bold text-indigo-600 mx-1">{viewTitle}</span>
     </p>
   </div>
@@ -145,8 +145,13 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
 }) => {
   if (isLoading && drawings.length === 0) {
     return (
-      <div className="flex justify-center items-center h-64 text-indigo-600">
+      <div
+        className="flex justify-center items-center h-64 text-indigo-600"
+        role="status"
+        aria-label="Loading drawings"
+      >
         <Loader2 size={32} className="animate-spin" />
+        <span className="sr-only">Loading drawings</span>
       </div>
     );
   }
@@ -184,7 +189,7 @@ export const DrawingsGrid: React.FC<DrawingsGridProps> = ({
           {search && (
             <button
               onClick={onClearSearch}
-              className="mt-4 text-indigo-600 dark:text-indigo-400 font-medium hover:underline text-sm"
+              className="ui-button-secondary mt-4"
             >
               Clear search
             </button>

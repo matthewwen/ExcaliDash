@@ -65,7 +65,7 @@ services:
     image: zimengxiong/excalidash-frontend:0.4.18-dev
 ```
 
-Switch to a one-off custom dev tag (published by `make dev-release NAME=...`):
+Switch to a one-off custom dev tag when an image publisher provides it:
 
 ```yaml
 services:
@@ -83,11 +83,10 @@ services:
 - API client: `frontend/src/api/index.ts`
 - Realtime/editor behavior: `frontend/src/pages/Editor.tsx`
 - Deployment flow: `docker-compose*.yml`, `backend/Dockerfile`, `frontend/Dockerfile`, entrypoint scripts
-- Build/dev commands: `make build`, `npm test`, `make test-all`, `make test-e2e`
+- Build/dev commands: `npm run build`, `npm run test:integration`, `npm run test:e2e`, `npm run test:e2e:auth`
 - Development contributor flow:
-  - `make install` → `make dev`
-  - stop with `make dev-stop`
-  - `make dev-backend` / `make dev-frontend` if you only need one side
+  - `npm install` and `npm run install:all`
+  - `cd backend && npm run dev` and `cd frontend && npm run dev` in separate terminals
 
 ## Helper workflow
 
@@ -108,11 +107,11 @@ For setup and troubleshooting, start here.
     - View: `gh issue view <number> -w`
     - Create (guided): `gh issue create`
     - If missing, prompt the user to install `gh` (recommended) or use the web UI.
-- Use the `README.md` and `e2e/README.md` as the primary operator references.
+- Use the `README.md` and `docs/develop/index.md` as the primary operator references.
 - If the question is about one error, find the nearest environment or script path before proposing code changes.
 - Encourage filing an issue when needed (new bug / unclear docs / missing troubleshooting):
   - Ask the user to include:
-    - Their deployment mode: Docker Hub compose (`docker-compose.prod.yml`) vs repo compose (`docker-compose.yml`) vs `make` vs direct `npm`
+    - Their deployment mode: Docker Hub compose (`docker-compose.prod.yml`) vs repo compose (`docker-compose.yml`) vs root npm scripts vs direct `npm`
     - App version tag(s) and image tags (or `VERSION` if built from source)
     - OS/arch (for example `linux/arm64`) and whether a reverse proxy is used
     - Sanitized relevant env vars: `AUTH_MODE`, `TRUST_PROXY`, `FRONTEND_URL` (do not share secrets)
@@ -120,7 +119,7 @@ For setup and troubleshooting, start here.
     - Repro steps and expected vs actual behavior
   - If the agent can reproduce or pinpoint the root cause, summarize findings and link relevant files/lines.
 - If startup is blocked, collect these values from the user first:
-  - Are they using Docker Hub compose (`docker-compose.prod.yml`), repo compose (`docker-compose.yml`), `make`, or direct `npm`?
+  - Are they using Docker Hub compose (`docker-compose.prod.yml`), repo compose (`docker-compose.yml`), root npm scripts, or direct `npm`?
   - If using Docker Hub compose: `docker compose -f docker-compose.prod.yml ps` and `docker compose -f docker-compose.prod.yml logs backend --tail=200`
   - If using repo compose: `docker compose ps` and `docker compose logs backend --tail=200`
   - If using a git clone: `git status`
@@ -147,7 +146,7 @@ Understand runtime first, then touch code with local tests if requested.
 - `e2e/`: Playwright tests and compose-based test runner.
 - `docker-compose.yml`: local compose setup for source builds.
 - `docker-compose.prod.yml`: production-style compose using published images.
-- `Makefile`: repo-wide orchestration commands.
+- `package.json`: repo-wide orchestration commands.
 - `README.md`: user-facing installation and operational docs.
 - `VERSION`: version string used in builds.
   - Local OIDC helper: `docker-compose.oidc.yml` + `oidc/keycloak/realm-excalidash.json` (Keycloak container + realm seed; no users/passwords committed)
@@ -163,12 +162,13 @@ Dependencies:
 
 Install:
 
-- `npm i` in each package: `make install` (or `cd backend && npm install`, `cd frontend && npm install`, `cd e2e && npm install`)
+- `npm i` in each package: `npm run install:all` (or `cd backend && npm install`, `cd frontend && npm install`, `cd e2e && npm install`)
 
-Start backend + frontend in tmux:
+Start backend and frontend in separate terminals:
 
-- `make dev` (starts `backend` and `frontend` in a split tmux session; requires `tmux`)
-- `make dev-stop` to stop
+- `cd backend && npm run dev`
+- `cd frontend && npm run dev`
+- Stop each process with Ctrl-C.
 - Backend dev env:
   - `cd backend`
   - `cp .env.example .env`
@@ -243,6 +243,7 @@ Backend base variables:
 - `OIDC_SCOPES` (default `openid profile email`)
 - `OIDC_EMAIL_CLAIM` (default `email`)
 - `OIDC_EMAIL_VERIFIED_CLAIM` (default `email_verified`)
+- `OIDC_ALLOWED_EMAILS` (comma-separated email allow-list; empty permits any otherwise valid OIDC email)
 - `OIDC_REQUIRE_EMAIL_VERIFIED` (default `true`)
 - `OIDC_JIT_PROVISIONING` (default `true`)
 - `OIDC_FIRST_USER_ADMIN` (default `true`)
@@ -261,8 +262,8 @@ Frontend variables:
 
 E2E variables:
 
-- `BASE_URL` (default `http://localhost:5173`)
-- `API_URL` (default `http://localhost:8000`)
+- `BASE_URL` (default `http://127.0.0.1:26767`)
+- `API_URL` (default `http://127.0.0.1:28000`)
 - `HEADED` (`true` to show browser)
 - `NO_SERVER` (`true` to skip starting servers)
 - `CI` (ci-mode behavior in Playwright config)
@@ -307,14 +308,14 @@ Frontend architecture notes:
 - `frontend/src/context/` contains auth/theme state.
 - `frontend/src/pages/Editor.tsx` wires Socket.IO and live collaboration.
 - `frontend/vite.config.ts` sets Vite proxy to backend in local dev and compile-time app metadata.
-- Production frontend serving uses the stock Nginx configuration from the base image. Configure any SPA fallback, API proxying, or WebSocket proxying in your own reverse proxy.
+- Production frontend serving uses unprivileged Nginx, `frontend/nginx.conf.template`, and `frontend/docker-entrypoint.sh`. The image serves ports 80 and 8080 and proxies API/WebSocket traffic. The fork also supports direct host proxy routing to the loopback backend port.
 
-## Makefile command map
+## npm command map
 
-- Install: `make install`, `make dev`, `make dev-backend`, `make dev-frontend`
-- Build/test/lint: `make build`, `make lint`, `make test`, `make test-all`, `make test-e2e`, `make test-e2e-docker`
-- Docker: `make docker-build`, `make docker-run`, `make docker-run-detached`, `make docker-ps`, `make docker-logs`, `make docker-down`
-- Admin/ops helpers: backend scripts under `backend/package.json` (`admin:recover`, `dev:simulate-auth-onboarding:*`) and `backend/scripts/*`
+- Install: `npm install`, `npm run install:all`
+- Build/test/lint: `npm run build`, `npm run check`, `npm run test:integration`, `npm run test:e2e`, `npm run test:e2e:auth`
+- Docker: `docker compose build`, `docker compose up -d`, `docker compose ps`, `docker compose logs`, `docker compose down`
+- Admin/ops helpers: backend scripts under `backend/package.json` and `backend/scripts/`
 
 ## Decision matrix for agent response style
 
@@ -330,6 +331,6 @@ Frontend architecture notes:
 - Confirm env file presence and variables
 - Check compose/backend logs before code changes
 - Reproduce with minimal path:
-  - `make dev`
+  - `npm run dev` in each package
   - open frontend `http://localhost:6767`
 - For startup crashes: inspect missing environment validation errors from `backend/src/config.ts` and entrypoint migration/secrets log lines.

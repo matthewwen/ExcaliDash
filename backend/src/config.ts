@@ -18,6 +18,7 @@ import {
 import {
   readBoolean,
   readCsv,
+  readNonNegativeNumber,
   readNumber,
   readOptionalString,
   readRaw,
@@ -33,6 +34,7 @@ import {
 } from "./config/derived";
 import { type MailConfig, resolveMailConfig } from "./config/mail";
 import { resolveOidcClientSecret } from "./config/oidcSecret";
+import { resolveDatabaseUrl } from "./config/databaseUrl";
 
 export { buildPasswordPolicyMessage, validatePasswordAgainstPolicy };
 
@@ -74,7 +76,9 @@ interface Config {
   rateLimitWindowMs: number;
   csrfMaxRequests: number;
   csrfRateLimitWindowMs: number;
+  snapshotRetentionDays: number;
   snapshotRetentionMs: number;
+  snapshotMinIntervalMs: number;
   uploadMaxBytes: number;
   bodyLimitMb: number;
   fileUploadMaxMb: number;
@@ -203,34 +207,6 @@ const parseFrontendUrl = (raw: string | undefined): string | undefined => {
     .filter((origin) => origin.length > 0)
     .join(",");
   return normalized.length > 0 ? normalized : undefined;
-};
-
-const resolveDatabaseUrl = (rawUrl?: string) => {
-  const backendRoot = path.resolve(__dirname, "../");
-  const defaultDbPath = path.resolve(backendRoot, "prisma/dev.db");
-
-  if (!rawUrl || rawUrl.trim().length === 0) {
-    return `file:${defaultDbPath}`;
-  }
-
-  if (!rawUrl.startsWith("file:")) {
-    return rawUrl;
-  }
-
-  const filePath = rawUrl.replace(/^file:/, "");
-  const prismaDir = path.resolve(backendRoot, "prisma");
-  const normalizedRelative = filePath.replace(/^\.\/?/, "");
-  const hasLeadingPrismaDir =
-    normalizedRelative === "prisma" || normalizedRelative.startsWith("prisma/");
-
-  const absolutePath = path.isAbsolute(filePath)
-    ? filePath
-    : path.resolve(
-        hasLeadingPrismaDir ? backendRoot : prismaDir,
-        normalizedRelative,
-      );
-
-  return `file:${absolutePath}`;
 };
 
 process.env.DATABASE_URL = resolveDatabaseUrl(process.env.DATABASE_URL);
@@ -365,6 +341,8 @@ const resolveS3Config = (): S3Config => ({
   secretAccessKey: readOptionalString("AWS_SECRET_ACCESS_KEY"),
 });
 
+const snapshotRetentionDays = readNumber("SNAPSHOT_RETENTION_DAYS", 2);
+
 export const config: Config = {
   port: readNumber("PORT", 8000),
   listenHost: readString("BACKEND_HOST", "0.0.0.0"),
@@ -384,8 +362,10 @@ export const config: Config = {
   rateLimitWindowMs: readNumber("RATE_LIMIT_WINDOW_MS", 900000),
   csrfMaxRequests: readNumber("CSRF_MAX_REQUESTS", 60),
   csrfRateLimitWindowMs: readNumber("CSRF_RATE_LIMIT_WINDOW_MS", 60000),
-  snapshotRetentionMs:
-    readNumber("SNAPSHOT_RETENTION_DAYS", 2) * 24 * 60 * 60 * 1000,
+  snapshotRetentionDays,
+  snapshotRetentionMs: snapshotRetentionDays * 24 * 60 * 60 * 1000,
+  snapshotMinIntervalMs:
+    readNonNegativeNumber("SNAPSHOT_MIN_INTERVAL_SECONDS", 0) * 1000,
   uploadMaxBytes: readNumber("UPLOAD_MAX_MB", 100) * 1024 * 1024,
   bodyLimitMb: readNumber("BODY_LIMIT_MB", 50),
   fileUploadMaxMb,

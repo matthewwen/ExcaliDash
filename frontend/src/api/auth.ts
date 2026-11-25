@@ -4,6 +4,7 @@ import {
 } from "../utils/passwordPolicy";
 import { API_URL, api, axios } from "./client";
 import type { DrawingSortField, SortDirection } from "./drawings";
+import { getAuthSessionGeneration } from "../utils/authSession";
 import { isOidcAutoLoginSuppressed } from "../utils/oidcLogout";
 
 const USER_KEY = "excalidash-user";
@@ -17,8 +18,10 @@ const publicAuthEndpoints = [
 
 type RetriableRequestConfig = {
   _retry?: boolean;
+  _probeRetry?: boolean;
   _csrfRetry?: boolean;
   _authModeRetry?: boolean;
+  _authSessionGen?: number;
   url?: string;
   headers?: Record<string, string>;
 };
@@ -54,14 +57,17 @@ export interface AuthUser {
   mustResetPassword?: boolean;
 }
 
+export type ThemePreference = "light" | "dark" | "system";
+
 export interface UserPreferences {
-  theme?: "light" | "dark";
+  theme?: ThemePreference;
   dashboardSortField?: DrawingSortField;
   dashboardSortDirection?: SortDirection;
   language?: string;
   gridStep?: number;
   editorAutoHide?: boolean;
   compactSidebar?: boolean;
+  appendDroppedDrawings?: boolean;
 }
 
 export interface ApiKeyMetadata {
@@ -309,11 +315,37 @@ const redirectToLogin = async () => {
   if (window.location.pathname !== "/login") window.location.href = "/login";
 };
 
-const refreshAccessToken = async (): Promise<void> => {
+export const refreshAccessToken = async (): Promise<void> => {
   refreshPromise ||= authRefresh().finally(() => {
     refreshPromise = null;
   });
   return refreshPromise;
+};
+
+let sessionProbeCache: { value: boolean; fetchedAt: number } | null = null;
+const SESSION_PROBE_TTL_MS = 3000;
+
+// A failed refresh is ambiguous: it can mean the session is really gone, or
+// that a concurrent refresh (another tab, or the AuthContext mount path) won
+// a single-use rotation race and has already renewed the shared cookie jar.
+// Asking the server directly tells the two apart; the short cache keeps
+// simultaneous 401s from each issuing their own probe.
+const probeSessionAlive = async (): Promise<boolean> => {
+  const now = Date.now();
+  if (
+    sessionProbeCache &&
+    now - sessionProbeCache.fetchedAt < SESSION_PROBE_TTL_MS
+  ) {
+    return sessionProbeCache.value;
+  }
+  try {
+    await authMe();
+    sessionProbeCache = { value: true, fetchedAt: Date.now() };
+    return true;
+  } catch {
+    sessionProbeCache = { value: false, fetchedAt: Date.now() };
+    return false;
+  }
 };
 
 const isPublicAuthEndpoint = (url?: string): boolean =>
@@ -323,6 +355,10 @@ const isPublicAuthEndpoint = (url?: string): boolean =>
 
 api.interceptors.request.use(
   async (config) => {
+    const retriable = config as RetriableRequestConfig;
+    if (retriable._authSessionGen === undefined) {
+      retriable._authSessionGen = getAuthSessionGeneration();
+    }
     const method = config.method?.toUpperCase();
     if (
       method &&
@@ -330,6 +366,9 @@ api.interceptors.request.use(
       !isPublicAuthEndpoint(config.url)
     ) {
       await ensureCsrfToken();
+      if (retriable._authSessionGen !== getAuthSessionGeneration()) {
+        return Promise.reject(new Error("Auth session changed"));
+      }
       if (csrfToken) config.headers[csrfHeaderName] = csrfToken;
     }
     return config;
@@ -364,7 +403,13 @@ api.interceptors.response.use(
       const isShareFlow = window.location.pathname.startsWith("/shared/");
       const authEnabled = !isAuthRoute ? await getAuthEnabledStatus() : true;
 
-      if (isShareFlow && !isAuthRoute) return Promise.reject(error);
+      if (isShareFlow && isAuthRoute) return Promise.reject(error);
+      if (
+        originalRequest._authSessionGen !== undefined &&
+        originalRequest._authSessionGen !== getAuthSessionGeneration()
+      ) {
+        return Promise.reject(error);
+      }
       if (!isAuthRoute && authEnabled === false) {
         if (!originalRequest._authModeRetry) {
           originalRequest._authModeRetry = true;
@@ -377,8 +422,30 @@ api.interceptors.response.use(
         try {
           originalRequest._retry = true;
           await refreshAccessToken();
+          if (
+            originalRequest._authSessionGen !== undefined &&
+            originalRequest._authSessionGen !== getAuthSessionGeneration()
+          ) {
+            return Promise.reject(error);
+          }
           return api(originalRequest as any);
         } catch {
+          if (
+            originalRequest._authSessionGen !== undefined &&
+            originalRequest._authSessionGen !== getAuthSessionGeneration()
+          ) {
+            return Promise.reject(error);
+          }
+          if (!originalRequest._probeRetry && (await probeSessionAlive())) {
+            if (
+              originalRequest._authSessionGen !== undefined &&
+              originalRequest._authSessionGen !== getAuthSessionGeneration()
+            ) {
+              return Promise.reject(error);
+            }
+            originalRequest._probeRetry = true;
+            return api(originalRequest as any);
+          }
           clearStoredAuth();
           if (!isShareFlow) await redirectToLogin();
           return Promise.reject(error);
@@ -386,6 +453,16 @@ api.interceptors.response.use(
       }
 
       if (!isAuthRoute) {
+        if (!originalRequest._probeRetry && (await probeSessionAlive())) {
+          if (
+            originalRequest._authSessionGen !== undefined &&
+            originalRequest._authSessionGen !== getAuthSessionGeneration()
+          ) {
+            return Promise.reject(error);
+          }
+          originalRequest._probeRetry = true;
+          return api(originalRequest as any);
+        }
         clearStoredAuth();
         if (!isShareFlow) await redirectToLogin();
       }
@@ -397,9 +474,21 @@ api.interceptors.response.use(
     ) {
       clearCsrfToken();
       const originalRequest = (error.config || {}) as RetriableRequestConfig;
+      if (
+        originalRequest._authSessionGen !== undefined &&
+        originalRequest._authSessionGen !== getAuthSessionGeneration()
+      ) {
+        return Promise.reject(error);
+      }
       if (!originalRequest._csrfRetry) {
         originalRequest._csrfRetry = true;
         await fetchCsrfToken();
+        if (
+          originalRequest._authSessionGen !== undefined &&
+          originalRequest._authSessionGen !== getAuthSessionGeneration()
+        ) {
+          return Promise.reject(error);
+        }
         if (csrfToken) {
           originalRequest.headers = originalRequest.headers || {};
           originalRequest.headers[csrfHeaderName] = csrfToken;

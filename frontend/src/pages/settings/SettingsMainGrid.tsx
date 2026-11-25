@@ -1,15 +1,18 @@
 import {
   Archive,
+  CopyPlus,
   PanelLeft,
   Eye,
   EyeOff,
   Languages,
+  Monitor,
   Moon,
   Sun,
   Zap,
   ZapOff,
 } from "lucide-react";
 import type * as api from "../../api";
+import { PlayfulSelect } from "../../components/PlayfulSelect";
 import { PlayfulSwitch } from "../../components/PlayfulSwitch";
 import { UpdateSettingsCard } from "./UpdateSettingsCard";
 import {
@@ -26,8 +29,9 @@ import {
 
 type SettingsMainGridProps = {
   exportBackup: () => void;
-  theme: string;
-  toggleTheme: () => void;
+  theme: "light" | "dark";
+  themePreference: api.ThemePreference;
+  onThemePreferenceChange: (preference: api.ThemePreference) => void;
   imageCompression: boolean;
   toggleImageCompression: () => void;
   imageCompressionThresholdMb: number;
@@ -36,6 +40,8 @@ type SettingsMainGridProps = {
   onEditorAutoHideChange: (enabled: boolean) => void;
   compactSidebar: boolean;
   onCompactSidebarChange: (enabled: boolean) => void;
+  appendDroppedDrawings: boolean;
+  onAppendDroppedDrawingsChange: (enabled: boolean) => void;
   updateChannel: api.UpdateChannel;
   updateInfo: api.UpdateInfo | null;
   updateLoading: boolean;
@@ -47,7 +53,8 @@ type SettingsMainGridProps = {
 export const SettingsMainGrid = ({
   exportBackup,
   theme,
-  toggleTheme,
+  themePreference,
+  onThemePreferenceChange,
   imageCompression,
   toggleImageCompression,
   imageCompressionThresholdMb,
@@ -56,6 +63,8 @@ export const SettingsMainGrid = ({
   onEditorAutoHideChange,
   compactSidebar,
   onCompactSidebarChange,
+  appendDroppedDrawings,
+  onAppendDroppedDrawingsChange,
   updateChannel,
   updateInfo,
   updateLoading,
@@ -72,29 +81,47 @@ export const SettingsMainGrid = ({
         tileClassName="border-black bg-emerald-400 text-black dark:border-neutral-700 dark:bg-emerald-400 dark:text-black"
         title={t("settings.language")}
       >
-        <select
-          aria-label={t("settings.language")}
+        <PlayfulSelect
+          ariaLabel={t("settings.language")}
           value={language}
-          onChange={(event) => setLanguage(event.target.value)}
-          className="ui-input text-sm font-bold"
-        >
-          <option value="en">English</option>
-          <option value="zh-CN">简体中文</option>
-          {language !== "en" && language !== "zh-CN" && (
-            <option value={language}>{language} (editor language)</option>
-          )}
-        </select>
+          onChange={setLanguage}
+          align="right"
+          portal
+          options={[
+            { value: "en", label: "English" },
+            { value: "zh-CN", label: "简体中文" },
+            ...(language !== "en" && language !== "zh-CN"
+              ? [{ value: language, label: `${language} (editor language)` }]
+              : []),
+          ]}
+          buttonClassName="h-10 min-w-[150px] px-3"
+          menuClassName="min-w-[170px]"
+        />
       </SettingsRow>
 
       <SettingsRow
-        icon={theme === "light" ? <Moon size={20} /> : <Sun size={20} />}
+        icon={theme === "light" ? <Sun size={20} /> : <Moon size={20} />}
         tileClassName="border-black bg-amber-400 text-black dark:border-neutral-700 dark:bg-amber-400 dark:text-black"
         title="Appearance"
+        description={
+          themePreference === "system"
+            ? `Following your system (${theme})`
+            : undefined
+        }
       >
-        <PlayfulSwitch
-          checked={theme === "dark"}
-          onChange={() => toggleTheme()}
-          ariaLabel="Toggle dark mode"
+        <PlayfulSelect
+          ariaLabel="Theme"
+          value={themePreference}
+          onChange={(value) =>
+            onThemePreferenceChange(
+              value === "light" || value === "dark" ? value : "system",
+            )
+          }
+          options={[
+            { value: "light", label: "Light", icon: <Sun size={14} /> },
+            { value: "dark", label: "Dark", icon: <Moon size={14} /> },
+            { value: "system", label: "System", icon: <Monitor size={14} /> },
+          ]}
         />
       </SettingsRow>
 
@@ -123,6 +150,19 @@ export const SettingsMainGrid = ({
           checked={compactSidebar}
           onChange={onCompactSidebarChange}
           ariaLabel="Toggle compact sidebar"
+        />
+      </SettingsRow>
+
+      <SettingsRow
+        icon={<CopyPlus size={20} />}
+        tileClassName="border-black bg-rose-400 text-black dark:border-neutral-700 dark:bg-rose-400 dark:text-black"
+        title="Append dropped drawings"
+        description="Add to the open drawing instead of replacing it."
+      >
+        <PlayfulSwitch
+          checked={appendDroppedDrawings}
+          onChange={onAppendDroppedDrawingsChange}
+          ariaLabel="Toggle appending dropped drawings"
         />
       </SettingsRow>
 

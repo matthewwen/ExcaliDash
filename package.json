@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.22.1"
   },
   "packageManager": "npm@10.9.2",
   "scripts": {
@@ -31,5 +31,10 @@
     "prettier": "^3.9.0",
     "typescript-eslint": "^8.46.3",
     "vitepress": "^1.6.4"
+  },
+  "overrides": {
+    "vitepress": {
+      "vite": "^6.4.5"
+    }
   }
 }

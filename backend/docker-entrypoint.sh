@@ -142,7 +142,7 @@ if [ "${RUN_MIGRATIONS}" = "true" ] || [ "${RUN_MIGRATIONS}" = "1" ]; then
     # Best-effort cleanup so future startups don't block forever.
     trap 'rmdir "${MIGRATION_LOCK_DIR}" 2>/dev/null || true' EXIT INT TERM
 
-    run_as_app_user npx prisma migrate deploy
+    run_as_app_user node /app/node_modules/prisma/build/index.js migrate deploy
 
     rmdir "${MIGRATION_LOCK_DIR}" 2>/dev/null || true
     trap - EXIT INT TERM

@@ -8,7 +8,11 @@ import { useEditorCanvasHandlers } from "../src/pages/editor/useEditorCanvasHand
 import { useEditorCollaboration } from "../src/pages/editor/useEditorCollaboration";
 const { sockets } = vi.hoisted(() => ({ sockets: [] as any[] }));
 vi.mock("@excalidraw/excalidraw", () => ({
-  CaptureUpdateAction: { IMMEDIATELY: "IMMEDIATELY" },
+  CaptureUpdateAction: { IMMEDIATELY: "IMMEDIATELY", NEVER: "NEVER" },
+  getVisibleSceneBounds: vi.fn(() => [0, 0, 100, 50]),
+  zoomToFitBounds: vi.fn(() => ({
+    appState: { scrollX: -10, scrollY: -20, zoom: { value: 2 } },
+  })),
 }));
 vi.mock("socket.io-client", () => ({
   io: vi.fn(() => {
@@ -65,19 +69,26 @@ const flushFrames = async () => {
 };
 const makeHarness = () => {
   let live: any[] = [];
+  let appState: any = { collaborators: new Map() };
   const refs = {
     latestElementsRef: ref<readonly any[]>(live),
     latestFilesRef: ref<any>({}),
     lastSyncedFilesRef: ref({}),
-    lastSyncedElementOrderSigRef: ref(""),
+    lastSyncedElementOrderRef: ref<readonly string[] | null>(null),
   };
   const editor = {
     getSceneElementsIncludingDeleted: () => live,
-    getAppState: () => ({ collaborators: new Map() }),
+    getAppState: () => appState,
     getFiles: () => ({}),
     addFiles: vi.fn(),
+    onUserFollow: vi.fn(() => vi.fn()),
+    onScrollChange: vi.fn(() => vi.fn()),
     updateScene: vi.fn((scene) => {
       if (scene.elements) live = scene.elements;
+      if (scene.collaborators) {
+        appState = { ...appState, collaborators: scene.collaborators };
+      }
+      if (scene.appState) appState = { ...appState, ...scene.appState };
     }),
   };
   const input = {
@@ -85,8 +96,6 @@ const makeHarness = () => {
     me,
     isReady: true,
     excalidrawAPI: ref(editor),
-    computeElementOrderSig: (els: readonly any[]) =>
-      els.map((el) => el.id).join(","),
     recordElementVersion: vi.fn(),
     onAccessDenied: vi.fn(),
   };
@@ -99,6 +108,9 @@ const makeHarness = () => {
     editor,
     input,
     Harness,
+    setAppState: (patch: any) => {
+      appState = { ...appState, ...patch };
+    },
     setLive: (els: any[]) => {
       live = els;
       refs.latestElementsRef.current = els;
@@ -253,6 +265,7 @@ describe("remote collaboration staging", () => {
         canEdit: true,
         drawingId: "drawing",
         isReady: true,
+        markSceneChanged: vi.fn(),
         debouncedSavePreview: vi.fn(),
         emitFilesDeltaIfNeeded: fileEmit,
         refs: {
@@ -260,10 +273,8 @@ describe("remote collaboration staging", () => {
           isSyncing,
           isUnmounting: ref(false),
           hasHydratedInitialScene: ref(true),
-          hasSceneChangesSinceLoad: ref(false),
           initialSceneElements: ref([]),
           isBootstrappingScene: ref(false),
-          lastLocalChangeAt: ref(0),
           latestAppState: ref({}),
           latestElements: h.refs.latestElementsRef,
           latestFiles: h.refs.latestFilesRef,
@@ -409,7 +420,7 @@ describe("remote collaboration staging", () => {
     await mount(h.Harness);
     const first = element("first", 1);
     const second = element("second", 1);
-    h.input.lastSyncedElementOrderSigRef.current = "first,second";
+    h.input.lastSyncedElementOrderRef.current = ["first", "second"];
     h.setLive([second, first]);
     sockets[0].handlers.get("element-update")({
       elements: [first, second],
@@ -418,10 +429,13 @@ describe("remote collaboration staging", () => {
     });
     await flushFrames();
     expect(h.refs.latestElementsRef.current).toEqual([second, first]);
-    expect(h.input.lastSyncedElementOrderSigRef.current).toBe("first,second");
-    expect(
-      h.input.computeElementOrderSig(h.refs.latestElementsRef.current),
-    ).not.toBe(h.input.lastSyncedElementOrderSigRef.current);
+    expect(h.input.lastSyncedElementOrderRef.current).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(h.refs.latestElementsRef.current.map((el) => el.id)).not.toEqual(
+      h.input.lastSyncedElementOrderRef.current,
+    );
     sockets[0].handlers.get("element-update")({
       elements: [],
       elementOrder: ["first", "second"],
@@ -538,5 +552,251 @@ describe("remote collaboration staging", () => {
     });
     await flushFrames();
     expect(h.refs.latestElementsRef.current).toEqual([]);
+  });
+});
+describe("follow mode", () => {
+  const emitted = (socket: any, event: string) =>
+    socket.emit.mock.calls
+      .filter(([name]: [string]) => name === event)
+      .map(([, payload]: [string, any]) => payload);
+  it("keys collaborators by person and keeps them as away until their last tab leaves", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    // A cursor alone adds the person, keyed by their user id.
+    sockets[0].handlers.get("cursor-move")({
+      userId: "user-b",
+      username: "B",
+      color: "blue",
+      pointer: { x: 1, y: 2 },
+    });
+    await flushFrames();
+    const collaborators = () => h.editor.getAppState().collaborators;
+    expect([...collaborators().keys()]).toEqual(["user-b"]);
+    const tab = (socketId: string, isActive: boolean) => ({
+      id: "user-b",
+      socketId,
+      name: "B",
+      isActive,
+    });
+    // Two tabs of one person stay one entry, active while either tab is.
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([
+        tab("socket-b1", false),
+        tab("socket-b2", true),
+      ]);
+    });
+    expect([...collaborators().keys()]).toEqual(["user-b"]);
+    expect(collaborators().get("user-b")).toMatchObject({
+      userState: "active",
+    });
+    // With only the inactive tab left they are away, not gone.
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([tab("socket-b1", false)]);
+    });
+    expect(collaborators().get("user-b")).toMatchObject({
+      userState: "away",
+    });
+    // They are removed once their last tab leaves.
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([]);
+    });
+    expect(collaborators().size).toBe(0);
+  });
+  it("lists connected peers as followable before their cursor is seen", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([
+        {
+          id: "user-c",
+          socketId: "socket-c",
+          name: "C",
+          color: "#00ff00",
+          isActive: false,
+        },
+      ]);
+    });
+    expect(h.editor.getAppState().collaborators.get("user-c")).toEqual({
+      username: "C",
+      color: { background: "#00ff00", stroke: "#00ff00" },
+      id: "user-c",
+      userState: "away",
+    });
+  });
+  // Excalidraw calls its follow target socketId; ours is the user id.
+  const follow = (h: any, userId: string) =>
+    h.setAppState({ userToFollow: { socketId: userId, username: userId } });
+  it("applies viewports only from the followed person in this drawing", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    follow(h, "user-b");
+    const bounds = [10, 20, 110, 70];
+    const handler = sockets[0].handlers.get("visible-bounds");
+    // Someone else, and the followed person in another drawing, are ignored.
+    handler({ drawingId: "drawing", userId: "user-c", bounds });
+    handler({ drawingId: "other", userId: "user-b", bounds });
+    expect(h.editor.updateScene).not.toHaveBeenCalled();
+    // The followed person's viewport is fitted to ours.
+    handler({ drawingId: "drawing", userId: "user-b", bounds });
+    expect(h.editor.updateScene).toHaveBeenCalledWith({
+      appState: { scrollX: -10, scrollY: -20, zoom: { value: 2 } },
+      captureUpdate: "NEVER",
+    });
+  });
+  it("ignores malformed or out-of-range viewports from the followed person", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    follow(h, "user-b");
+    const handler = sockets[0].handlers.get("visible-bounds");
+    for (const bounds of [
+      [10, 20, 110],
+      ["10", "20", "110", "70"],
+      [10, NaN, 110, 70],
+      [10, 20, Infinity, 70],
+      [110, 20, 10, 70],
+      [0, 0, 1e300, 1e300],
+      [1e308, 0, 1.7e308, 70],
+      null,
+    ]) {
+      handler({ drawingId: "drawing", userId: "user-b", bounds });
+    }
+    expect(h.editor.updateScene).not.toHaveBeenCalled();
+    // A later valid viewport still applies.
+    handler({
+      drawingId: "drawing",
+      userId: "user-b",
+      bounds: [10, 20, 110, 70],
+    });
+    expect(h.editor.updateScene).toHaveBeenCalledTimes(1);
+  });
+  it("broadcasts its viewport on scroll and when a peer joins, keeping the last scroll of a burst", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    const socket = sockets[0];
+    const [[onScrollChange]] = h.editor.onScrollChange.mock.calls as any;
+    // The first scroll is sent at once, saying we follow nobody.
+    onScrollChange();
+    expect(emitted(socket, "visible-bounds")).toEqual([
+      { drawingId: "drawing", bounds: [0, 0, 100, 50], following: null },
+    ]);
+    // A burst of scrolls sends one trailing update after the throttle.
+    onScrollChange();
+    onScrollChange();
+    expect(emitted(socket, "visible-bounds")).toHaveLength(1);
+    vi.advanceTimersByTime(50);
+    expect(emitted(socket, "visible-bounds")).toHaveLength(2);
+    const peer = { id: "user-b", socketId: "socket-b", name: "B" };
+    vi.advanceTimersByTime(50);
+    // A newcomer gets our viewport without waiting for us to scroll.
+    await act(async () => {
+      socket.handlers.get("presence-update")([{ ...peer, isActive: true }]);
+    });
+    expect(emitted(socket, "visible-bounds")).toHaveLength(3);
+    vi.advanceTimersByTime(50);
+    // A presence change that adds nobody sends nothing.
+    await act(async () => {
+      socket.handlers.get("presence-update")([{ ...peer, isActive: false }]);
+    });
+    vi.advanceTimersByTime(50);
+    expect(emitted(socket, "visible-bounds")).toHaveLength(3);
+  });
+  it("stays quiet while following and reports its viewport after unfollowing", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    const socket = sockets[0];
+    const userToFollow = { socketId: "user-b", username: "B" };
+    h.setAppState({ userToFollow });
+    // While following, our scrolls only mirror the leader; nothing is sent.
+    const [[onScrollChange]] = h.editor.onScrollChange.mock.calls as any;
+    onScrollChange();
+    vi.advanceTimersByTime(50);
+    expect(emitted(socket, "visible-bounds")).toEqual([]);
+    // Unfollowing tells peers where we are now, and that we follow nobody.
+    h.setAppState({ userToFollow: null });
+    const [[onUserFollow]] = h.editor.onUserFollow.mock.calls as any;
+    onUserFollow({ userToFollow, action: "UNFOLLOW" });
+    expect(emitted(socket, "visible-bounds")).toHaveLength(1);
+  });
+  it("jumps to a person's last known viewport when following them", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    // A viewport arriving while we follow nobody is only remembered.
+    sockets[0].handlers.get("visible-bounds")({
+      drawingId: "drawing",
+      userId: "user-b",
+      bounds: [10, 20, 110, 70],
+    });
+    expect(h.editor.updateScene).not.toHaveBeenCalled();
+    // Following them applies it straight away.
+    follow(h, "user-b");
+    const [[onUserFollow]] = h.editor.onUserFollow.mock.calls as any;
+    onUserFollow({
+      userToFollow: { socketId: "user-b", username: "B" },
+      action: "FOLLOW",
+    });
+    expect(h.editor.updateScene).toHaveBeenCalledWith({
+      appState: { scrollX: -10, scrollY: -20, zoom: { value: 2 } },
+      captureUpdate: "NEVER",
+    });
+  });
+  it("keeps following a person while any of their tabs remain", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    const tab = (socketId: string) => ({
+      id: "user-b",
+      socketId,
+      name: "B",
+      color: "#00ff00",
+      isActive: true,
+    });
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([
+        tab("socket-b1"),
+        tab("socket-b2"),
+      ]);
+    });
+    follow(h, "user-b");
+    // One of their two tabs closes; the person, and so the follow, remain.
+    await act(async () => {
+      sockets[0].handlers.get("presence-update")([tab("socket-b2")]);
+    });
+    expect([...h.editor.getAppState().collaborators.keys()]).toEqual([
+      "user-b",
+    ]);
+  });
+  it("follows a chain to its leader and re-resolves when the chain changes", async () => {
+    const h = makeHarness();
+    await mount(h.Harness);
+    const handler = sockets[0].handlers.get("visible-bounds");
+    const view = (userId: string, following: string | null) =>
+      handler({
+        drawingId: "drawing",
+        userId,
+        bounds: [10, 20, 110, 70],
+        following,
+      });
+    // We follow B, who follows A, so B's own viewport is not what we show.
+    follow(h, "user-b");
+    view("user-b", "user-a");
+    expect(h.editor.updateScene).not.toHaveBeenCalled();
+    // A leads the chain, so A's viewport is applied.
+    view("user-a", null);
+    expect(h.editor.updateScene).toHaveBeenCalledTimes(1);
+    // Someone outside the chain changes nothing.
+    view("user-x", null);
+    expect(h.editor.updateScene).toHaveBeenCalledTimes(1);
+    // B stops following, so B now leads and B's viewport is applied.
+    view("user-b", null);
+    expect(h.editor.updateScene).toHaveBeenCalledTimes(2);
+    // A and B following each other leaves no leader, so nothing applies.
+    view("user-a", "user-b");
+    view("user-b", "user-a");
+    expect(h.editor.updateScene).toHaveBeenCalledTimes(2);
+    // Applying a viewport scrolls us, but a follower never re-broadcasts, so
+    // a loop of followers cannot echo messages between each other.
+    const [[onScrollChange]] = h.editor.onScrollChange.mock.calls as any;
+    onScrollChange();
+    vi.advanceTimersByTime(50);
+    expect(emitted(sockets[0], "visible-bounds")).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 # Shared dependency stage
-FROM node:20-alpine AS dependencies
+FROM node:24.22.1-alpine AS dependencies
 
 WORKDIR /app
 
@@ -50,13 +50,19 @@ FROM dependencies AS production-dependencies
 RUN npm prune --omit=dev && npm cache clean --force
 
 # Production stage
-FROM node:20-alpine
+FROM node:24.22.1-alpine
 
 ARG APP_BUILD_LABEL
 ENV APP_BUILD_LABEL=${APP_BUILD_LABEL}
 
+# Build tooling is not needed at runtime. Removing the bundled package managers
+# also removes their dependency trees from the production image.
+RUN rm -rf /usr/local/lib/node_modules/npm /opt/yarn-* && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/yarn /usr/local/bin/yarnpkg
+
 # Install runtime packages and create non-root user
-RUN apk add --no-cache openssl su-exec && \
+RUN apk upgrade --no-cache && \
+    apk add --no-cache openssl su-exec && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 

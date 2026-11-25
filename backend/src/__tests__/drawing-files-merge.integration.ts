@@ -229,6 +229,12 @@ describe("Drawing file save-merge (B2)", () => {
       },
     });
     expect(snapshot.appState.startsWith("br1:")).toBe(true);
+    const list = await request(app)
+      .get(`/drawings/${drawing.id}/history`)
+      .set("Authorization", `Bearer ${ownerToken}`);
+    expect(list.status).toBe(200);
+    expect(list.body.totalCount).toBe(1);
+    expect(list.body.retentionDays).toBe(config.snapshotRetentionDays);
     const read = await request(app)
       .get(`/drawings/${drawing.id}/history/${snapshot.id}`)
       .set("Authorization", `Bearer ${ownerToken}`);

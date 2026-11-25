@@ -103,8 +103,23 @@ export const sanitizeSvg = (svgContent: string): string => {
         `<$1 href="${hrefValue}"`,
       );
     });
+  // Previews embed every image as a base64 data URL, often tens of MB. Parsing
+  // those through jsdom dominates CPU and memory, so swap each safe data URL
+  // for a short managed-ref placeholder, sanitize the small remaining markup,
+  // then restore. Unsafe data URLs are left in place for the normal rejection.
+  const placeholderPrefix = `/api/files/inline-${crypto.randomBytes(8).toString("hex")}/`;
+  const inlineDataUrls: string[] = [];
+  const withPlaceholders = svgContent.replace(
+    /(\s(?:xlink:)?href\s*=\s*)(["'])(data:[^"']*)\2/gi,
+    (match, prefix: string, quote: string, dataUrl: string) => {
+      const trimmed = dataUrl.trim();
+      if (!safeImageDataUrlPattern.test(trimmed)) return match;
+      inlineDataUrls.push(trimmed);
+      return `${prefix}${quote}${placeholderPrefix}${inlineDataUrls.length - 1}${quote}`;
+    },
+  );
   const sanitized = purify
-    .sanitize(svgContent, {
+    .sanitize(withPlaceholders, {
       ALLOWED_TAGS: [
         "svg",
         "defs",
@@ -209,7 +224,12 @@ export const sanitizeSvg = (svgContent: string): string => {
     (attribute, value: string) =>
       /^url\(#[\w-]+\)$/.test(value) ? attribute : "",
   );
-  return sanitizeSvgImageTags(localReferences).trim();
+  const result = sanitizeSvgImageTags(localReferences).trim();
+  if (inlineDataUrls.length === 0) return result;
+  return result.replace(
+    new RegExp(`${escapeRegExp(placeholderPrefix)}(\\d+)`, "g"),
+    (_match, index: string) => inlineDataUrls[Number(index)] ?? "",
+  );
 };
 export const sanitizeText = (
   input: unknown,
@@ -261,18 +281,26 @@ export const sanitizeText = (
     .trim();
 };
 /**
+ * Maximum characters kept for an element's `text` / `originalText`. Excalidraw
+ * itself imposes no limit, so this is only a guard against abuse and is set far
+ * above realistic content (see issue #310).
+ */
+export const MAX_ELEMENT_TEXT_LENGTH = 200_000;
+/**
  * Sanitize a canvas element's plain-text content. Unlike {@link sanitizeText}
  * (for names/metadata that may land in an HTML context), element text is drawn
  * to the Excalidraw canvas verbatim and is never inserted as HTML, so it must
  * NOT be run through DOMPurify: that strips literal `<value>`-style words as if
  * they were unknown tags and entity-encodes `<`, `&` (turning `3 < 4 & ok` into
  * `3 &lt; 4 &amp; ok`), corrupting imported drawings. We only strip control
- * characters and truncate, preserving angle brackets/ampersands exactly. The
+ * characters and cap the length (generously, at
+ * {@link MAX_ELEMENT_TEXT_LENGTH}, far above anything Excalidraw produces in
+ * practice), preserving angle brackets/ampersands exactly. The
  * SVG preview export path is sanitized separately by {@link sanitizeSvg}.
  */
 export const sanitizeElementText = (
   input: unknown,
-  maxLength: number = 5000,
+  maxLength: number = MAX_ELEMENT_TEXT_LENGTH,
 ): string => {
   if (typeof input !== "string") return "";
   return input
@@ -333,7 +361,13 @@ export const elementSchema = z
   .transform((element) => {
     const sanitized = { ...element };
     if (typeof sanitized.text === "string") {
-      sanitized.text = sanitizeElementText(sanitized.text, 5000);
+      sanitized.text = sanitizeElementText(sanitized.text);
+    }
+    // `originalText` is the pre-wrap source of a bound/wrapped text element; it
+    // must go through the same sanitizer and limit as `text` so the two cannot
+    // diverge.
+    if (typeof sanitized.originalText === "string") {
+      sanitized.originalText = sanitizeElementText(sanitized.originalText);
     }
     if (typeof sanitized.link === "string") {
       sanitized.link = sanitizeUrl(sanitized.link);
@@ -435,14 +469,24 @@ export const appStateSchema = z
       return true;
     }),
   );
-export const sanitizeDrawingData = (data: {
-  elements: any[];
-  appState: any;
-  files?: any;
-  preview?: string | null;
-}) => {
+export const sanitizeDrawingData = (
+  data: {
+    elements: any[];
+    appState: any;
+    files?: any;
+    preview?: string | null;
+  },
+  options: {
+    /** Elements already passed `elementSchema` (e.g. inside a route schema). */
+    elementsValidated?: boolean;
+  } = {},
+) => {
   try {
-    const sanitizedElements = elementSchema.array().parse(data.elements);
+    // elementSchema's transform is idempotent, so a second pass over a large
+    // scene only costs time (~half of zod's share of a 20k-element save).
+    const sanitizedElements = options.elementsValidated
+      ? data.elements
+      : elementSchema.array().parse(data.elements);
     const sanitizedAppState = appStateSchema.parse(data.appState);
     let sanitizedPreview = data.preview;
     if (typeof sanitizedPreview === "string") {
@@ -450,7 +494,17 @@ export const sanitizeDrawingData = (data: {
     }
     let sanitizedFiles = data.files;
     if (typeof sanitizedFiles === "object" && sanitizedFiles !== null) {
-      sanitizedFiles = structuredClone(sanitizedFiles);
+      // Only top-level keys of each file entry are reassigned below, so a
+      // per-entry shallow copy isolates the caller's object without deep-
+      // cloning multi-megabyte dataURL strings.
+      sanitizedFiles = Object.fromEntries(
+        Object.entries(sanitizedFiles).map(([fileId, file]) => [
+          fileId,
+          file && typeof file === "object" && !Array.isArray(file)
+            ? { ...file }
+            : file,
+        ]),
+      );
       const MAX_DATAURL_SIZE = activeConfig.maxDataUrlSize;
       const VALID_FILE_ID = /^[\w-]{1,200}$/;
       for (const fileId of Object.keys(sanitizedFiles)) {
@@ -464,6 +518,12 @@ export const sanitizeDrawingData = (data: {
           for (const key in file) {
             const value = file[key];
             if (typeof value !== "string") {
+              if (
+                (key === "created" || key === "lastRetrieved") &&
+                typeof value === "number" &&
+                Number.isFinite(value)
+              )
+                continue;
               file[key] = sanitizeText(value, 1000);
               continue;
             }

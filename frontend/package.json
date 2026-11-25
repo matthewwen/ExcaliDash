@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.22.1"
   },
   "packageManager": "npm@10.9.2",
   "scripts": {
@@ -45,17 +45,22 @@
     "tailwindcss": "^3.4.1",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.3",
-    "vite": "^7.3.2",
-    "vitest": "^4.1.11"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "@excalidraw/excalidraw": {
-      "nanoid": "3.3.18"
+      "nanoid": "3.3.18",
+      "sass": "^1.106.1"
     },
     "@excalidraw/mermaid-to-excalidraw": {
       "nanoid": "5.1.16",
       "@mermaid-js/parser": "1.2.1"
     },
-    "lodash-es": "4.18.1"
+    "lodash-es": "4.18.1",
+    "mermaid": {
+      "katex": "^0.18.2"
+    },
+    "postcss-selector-parser": "^7.1.7"
   }
 }

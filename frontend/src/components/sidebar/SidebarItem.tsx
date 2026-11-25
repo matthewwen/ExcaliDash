@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import clsx from "clsx";
+import { InlineEditInput } from "../InlineEditInput";
 
 interface SidebarItemProps {
   id: string | null;
@@ -13,8 +14,8 @@ interface SidebarItemProps {
   isEditing?: boolean;
   editValue?: string;
   onEditChange?: (val: string) => void;
-  onEditSubmit?: (e: React.FormEvent) => void;
-  onEditBlur?: () => void;
+  onEditCommit?: () => void;
+  onEditCancel?: () => void;
   onDrop?: (e: React.DragEvent, collectionId: string | null) => void;
 }
 
@@ -30,8 +31,8 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
   isEditing,
   editValue,
   onEditChange,
-  onEditSubmit,
-  onEditBlur,
+  onEditCommit,
+  onEditCancel,
   onDrop,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -39,17 +40,16 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
   return (
     <div className="relative group/item pl-3 pr-2">
       {isEditing ? (
-        <form onSubmit={onEditSubmit} className="py-1">
-          <input
-            autoFocus
-            type="text"
+        <div className="py-1">
+          <InlineEditInput
             value={editValue}
             onChange={(e) => onEditChange?.(e.target.value)}
+            onCommit={() => onEditCommit?.()}
+            onCancel={() => onEditCancel?.()}
             aria-label="Collection name"
             className="ui-input w-full font-medium"
-            onBlur={onEditBlur}
           />
-        </form>
+        </div>
       ) : (
         <div
           role="button"
@@ -74,17 +74,16 @@ export const SidebarItem: React.FC<SidebarItemProps> = ({
             onDrop?.(e, id);
           }}
           className={clsx(
-            "w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all duration-200 border-2 group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:focus-visible:ring-2 dark:focus-visible:ring-neutral-500",
+            "w-full flex items-center gap-3 px-3 py-2 text-sm font-semibold rounded-xl border-2 group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:focus-visible:ring-2 dark:focus-visible:ring-neutral-500",
             isActive || isDragOver
-              ? "bg-indigo-50 dark:bg-neutral-800 text-indigo-900 dark:text-neutral-200 border-slate-800 dark:border-neutral-700 shadow-[1.5px_1.5px_0px_0px_rgba(30,41,59,0.9)] dark:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,0.18)] -translate-y-0.5"
-              : "text-slate-600 dark:text-neutral-400 border-transparent hover:bg-slate-50 dark:hover:bg-neutral-800 hover:border-slate-800 hover:shadow-[1.5px_1.5px_0px_0px_rgba(30,41,59,0.9)] dark:hover:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,0.18)] hover:-translate-y-0.5",
+              ? "bg-indigo-50 dark:bg-indigo-500/10 text-indigo-900 dark:text-indigo-100 border-slate-800 dark:border-neutral-600 shadow-[1.5px_1.5px_0px_0px_rgba(30,41,59,0.9)] dark:shadow-[1.5px_1.5px_0px_0px_rgba(255,255,255,0.18)]"
+              : "text-slate-600 dark:text-neutral-400 border-transparent hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-100",
           )}
         >
           <span
             className={clsx(
-              "transition-colors duration-200",
               isActive || isDragOver
-                ? "text-indigo-900 dark:text-neutral-200"
+                ? "text-indigo-600 dark:text-indigo-300"
                 : "text-slate-400 dark:text-neutral-500 group-hover:text-slate-900 dark:group-hover:text-neutral-200",
             )}
           >

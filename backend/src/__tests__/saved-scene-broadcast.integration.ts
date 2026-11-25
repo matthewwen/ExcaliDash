@@ -22,6 +22,7 @@ describe("persisted collaboration scene broadcasts", () => {
   let app: express.Express;
   const emit = vi.fn();
   const to = vi.fn(() => ({ emit }));
+  const revalidateDrawingAccess = vi.fn();
 
   beforeAll(async () => {
     setupTestDb();
@@ -50,15 +51,25 @@ describe("persisted collaboration scene broadcasts", () => {
       parseJsonField: (raw, fallback) => (raw ? JSON.parse(raw) : fallback),
       drawingUpdateSchema: z.object({
         elements: z.array(z.any()).optional(),
+        appState: z.record(z.string(), z.unknown()).optional(),
         files: z.record(z.string(), z.any()).optional(),
         preview: z.string().optional(),
         version: z.number().optional(),
+        collectionId: z.string().nullable().optional(),
       }),
       getRequestPrincipal: async () => ({ kind: "user", userId: ownerId }),
       respondWithAuthErrorIfPresent: () => false,
       invalidateDrawingsCache: vi.fn(),
       config: { nodeEnv: "test" },
       internDrawingFiles: async (files) => files,
+      ensureTrashCollection: async (db, userId) => {
+        await db.collection.upsert({
+          where: { id: `trash:${userId}` },
+          update: {},
+          create: { id: `trash:${userId}`, name: "Trash", userId },
+        });
+      },
+      revalidateDrawingAccess,
       io: { to } as unknown as Server,
     } as DrawingRouteContext);
   });
@@ -93,6 +104,7 @@ describe("persisted collaboration scene broadcasts", () => {
       .put(`/drawings/${drawing.id}`)
       .send({
         elements,
+        appState: { viewBackgroundColor: "#dddddd", gridModeEnabled: true },
         files: { newImage: { dataURL: "https://example.test/new.png" } },
         version: 3,
       });
@@ -102,7 +114,9 @@ describe("persisted collaboration scene broadcasts", () => {
     expect(emit).toHaveBeenCalledWith("element-update", {
       drawingId: drawing.id,
       persisted: true,
+      version: 4,
       elements: response.body.elements,
+      appState: { viewBackgroundColor: "#dddddd", gridModeEnabled: true },
       files: response.body.files,
       elementOrder: ["earlier", "new"],
     });
@@ -128,5 +142,23 @@ describe("persisted collaboration scene broadcasts", () => {
       .expect(200);
     expect(to).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("re-checks live collaborators when the drawing moves to Trash", async () => {
+    const drawing = await createDrawing();
+    await request(app)
+      .put(`/drawings/${drawing.id}`)
+      .send({ collectionId: "trash" })
+      .expect(200);
+    expect(revalidateDrawingAccess).toHaveBeenCalledWith(drawing.id);
+  });
+
+  it("does not re-check live collaborators when the collection stays the same", async () => {
+    const drawing = await createDrawing();
+    await request(app)
+      .put(`/drawings/${drawing.id}`)
+      .send({ preview: "<svg></svg>" })
+      .expect(200);
+    expect(revalidateDrawingAccess).not.toHaveBeenCalled();
   });
 });
